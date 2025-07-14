@@ -1,0 +1,166 @@
+Metadata-Version: 2.4
+Name: ftcli
+Version: 0.2.0
+Summary: Un assistant de recherche d'emploi en ligne de commande avec IA.
+Author-email: Votre Nom <votre@email.com>
+License: MIT License
+Project-URL: Homepage, https://github.com/votre-utilisateur/ftcli
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: typer[all]
+Requires-Dist: rich
+Requires-Dist: python-dotenv
+Requires-Dist: requests
+Requires-Dist: httpx
+Requires-Dist: diskcache
+Requires-Dist: questionary
+
+# 🚀 FTCli - Votre Assistant de Recherche d'Emploi en Ligne de Commande
+
+FTCli est un outil en ligne de commande puissant conçu pour rationaliser et optimiser votre recherche d'emploi. Il s'interface avec les API de France Travail (ex-Pôle Emploi) et l'IA de Google Gemini pour vous offrir un avantage compétitif, le tout depuis votre terminal.
+
+![Aperçu de FTCli en action](https://i.imgur.com/8a3YQ9C.png)
+*(Note : Pensez à remplacer cette image par une capture d'écran réelle de votre application)*
+
+## ✨ Fonctionnalités Principales
+
+*   **Recherche d'Offres Avancée :** Trouvez des offres d'emploi par mots-clés, département ou commune.
+*   **Analyse par IA :** Obtenez une analyse de compatibilité (`match`) entre votre profil et une offre, ou générez une version de votre CV optimisée (`adapter`) pour un poste spécifique.
+*   **Gestion de Profils :** Analysez votre CV (PDF) une seule fois et réutilisez ce profil pour toutes vos actions.
+*   **Suivi de Candidatures (CRM) :** Ne perdez plus jamais le fil de vos candidatures grâce à un tableau de suivi intégré pour gérer les statuts et prendre des notes.
+*   **Tableau de Bord Proactif :** Lancez l'application pour voir en un clin d'œil vos statistiques et les actions prioritaires à mener.
+
+## 🛠️ Installation
+
+FTCli est conçu pour fonctionner sur des environnements Linux (Ubuntu, Debian, etc.) et est également compatible avec Termux sur Android.
+
+### Prérequis
+
+1.  **Python 3.10+**
+2.  **pip** et **venv**
+3.  **poppler-utils** (pour l'extraction de texte des PDF) :
+    ```bash
+    # Sur Debian/Ubuntu ou Termux
+    sudo apt-get update && sudo apt-get install -y poppler-utils
+    ```
+
+### Procédure d'Installation
+
+1.  **Clonez le projet (ou téléchargez les fichiers) :**
+    ```bash
+    git clone https://votre-lien-vers-le-repo-git.com/ftcli.git
+    cd ftcli
+    ```
+
+2.  **Créez un environnement virtuel et activez-le :**
+    ```bash
+    python3 -m venv .venv
+    source .venv/bin/activate
+    ```
+
+3.  **Configurez vos clés d'API :**
+    *   Créez un fichier nommé `.env` à la racine du projet.
+    *   Ajoutez-y vos clés API pour France Travail et Google Gemini :
+        ```ini
+        # Fichier : .env
+        FT_CLIENT_ID="VOTRE_CLIENT_ID_FRANCE_TRAVAIL"
+        FT_CLIENT_SECRET="VOTRE_CLIENT_SECRET_FRANCE_TRAVAIL"
+        GEMINI_API_KEY="VOTRE_CLE_API_GEMINI"
+        ```
+
+4.  **Installez les dépendances et l'application :**
+    *   Assurez-vous d'avoir un fichier `pyproject.toml` à la racine du projet.
+    *   Installez le projet en mode "éditable". Cela rendra la commande `ftcli` disponible globalement dans votre terminal (tant que le venv est activé).
+        ```bash
+        pip install -e .
+        ```
+
+## 🚀 Utilisation
+
+L'outil principal est maintenant accessible via la commande `ftcli`.
+
+### Tableau de Bord (Commande par défaut)
+
+Lancez simplement `ftcli` sans argument pour afficher votre tableau de bord personnalisé.
+
+```bash
+ftcli
+Référence Complète des Commandes
+Gestion des Profils de CV (ftcli profils ...)
+Gérez les versions analysées de votre CV.
+
+ftcli profils analyser --nom <nom> <chemin/vers/cv.pdf>
+Analyse un nouveau CV PDF via l'IA et le sauvegarde sous un nom unique.
+
+--nom : Nom mémorable (ex: "cv_dev_backend_2025").
+
+Exemple : ftcli profils analyser --nom "cv_tech_2025" ~/Documents/mon_cv.pdf
+
+ftcli profils lister
+Affiche la liste de tous vos profils de CV sauvegardés avec leur ID.
+
+Recherche d'Offres (ftcli search ... et ftcli view ...)
+Trouvez et analysez des offres d'emploi.
+
+ftcli search --mots <mots-clés>
+Recherche des offres.
+
+--mots : Les termes de votre recherche (ex: "administrateur systèmes et réseaux").
+
+--departement <num> : (Optionnel) Filtre par numéro de département (ex: 13).
+
+--commune <INSEE> : (Optionnel) Filtre par code INSEE de commune (ex: 75056 pour Paris).
+
+Exemple : ftcli search --mots "data scientist" --departement 75
+
+ftcli view <ID_OFFRE>
+Affiche la description détaillée d'une offre spécifique.
+
+Exemple : ftcli view 195DVZM
+
+Analyse par IA (ftcli match ... et ftcli adapter ...)
+Obtenez un avantage compétitif grâce à l'IA.
+
+ftcli match --profil <ID> --offre <ID>
+Génère un rapport de compatibilité entre un de vos profils et une offre.
+
+--profil <ID> : L'ID de votre profil (obtenu via profils lister).
+
+--offre <ID> : L'ID de l'offre.
+
+Exemple : ftcli match --profil 2 --offre 195DVZM
+
+ftcli adapter --profil <ID> --offre <ID>
+Génère une version de votre CV entièrement réécrite et optimisée pour l'offre.
+
+Exemple : ftcli adapter --profil 2 --offre 195DVZM
+
+Suivi des Candidatures (ftcli suivi ...)
+Votre mini-CRM pour ne rien oublier.
+
+ftcli suivi list
+Affiche le tableau de toutes vos candidatures sauvegardées avec leur statut.
+
+ftcli suivi save <ID_OFFRE>
+Ajoute une offre à votre tableau de suivi avec le statut "Sauvegardée".
+
+Exemple : ftcli suivi save 195DVZM
+
+ftcli suivi update
+Lance une interface interactive pour changer le statut d'une candidature (ex: "Candidature envoyée", "Entretien prévu"...).
+
+ftcli suivi notes <ID_SUIVI>
+Affiche et vous permet de modifier les notes pour une candidature spécifique.
+
+<ID_SUIVI> : L'ID interne de la candidature (visible avec suivi list).
+
+Exemple : ftcli suivi notes 3
+
+🤝 Contribution
+Ce projet est en cours de développement. Les contributions, rapports de bugs et suggestions sont les bienvenus !
+
+Generated code
+Use code with caution.
+37,6s
+Start typing a prompt
+

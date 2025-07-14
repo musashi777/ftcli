@@ -4,16 +4,20 @@ import asyncio
 import subprocess
 import questionary
 import re
+import json
+from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
+from rich.progress_bar import ProgressBar
 from typing import Dict, List, Optional
 from .client import FTClient
-from .gemini_utils import extraire_sections_cv_ia, adapter_cv_ia, generer_rapport_matching_ia
+from .gemini_utils import extraire_sections_cv_ia, adapter_cv_ia, generer_rapport_matching_ia, generer_lettre_motivation_ia
 from . import database
 from .agent_api import get_structured_plan
+from . import exporter
 
 # --- Initialisation ---
 console = Console()
@@ -31,7 +35,6 @@ def truncate_text(text: str, max_len: int = 40) -> str:
     return text
 
 # --- Commandes Principales ---
-
 @app.callback(invoke_without_command=True)
 def main_callback(ctx: typer.Context):
     """Initialise la base de données et affiche le tableau de bord si aucune commande n'est passée."""
@@ -67,32 +70,66 @@ def search(
     departement: str = typer.Option(None, "--departement", help="Numéro du département (ex: 75)"),
     commune: str = typer.Option(None, "--commune", help="Code INSEE de la commune"),
     max_results: int = typer.Option(15, "--max-results", help="Nombre maximum de résultats"),
+    type_contrat: str = typer.Option(None, "--type-contrat", help="Code du type de contrat (CDI, CDD, MIS...)"),
+    export: Optional[str] = typer.Option(None, "--export", help="Exporter les résultats (formats: txt, html)"),
 ):
     """Recherche des offres d'emploi via l'API France Travail."""
-    console.print(f"[bold cyan]🔍 Recherche en cours pour :[/bold cyan] [i]'{mots}'[/i]...")
+    search_terms = []
+    if mots:
+        search_terms.append(f"'{mots}'")
+    if type_contrat:
+        search_terms.append(f"Contrat: {type_contrat}")
+
+    console.print(f"[bold cyan]🔍 Recherche en cours pour :[/bold cyan] [i]{' '.join(search_terms)}[/i]...")
+    
     try:
         async def run_search():
             async with FTClient() as ft:
-                offres = await ft.search_offres(mots=mots, departement=departement, commune=commune)
-            return offres[:max_results]
+                offres = await ft.search_offres(
+                    mots=mots, 
+                    departement=departement, 
+                    commune=commune, 
+                    typeContrat=type_contrat
+                )
+            return offres[:max_results] if offres else []
 
         offres = asyncio.run(run_search())
         if not offres:
             console.print("[yellow]⚠️ Aucune offre trouvée.[/yellow]")
             return
 
-        table = Table(title=f"Résultats de recherche pour '{mots}'", box=rich.box.SIMPLE)
+        table = Table(title=f"Résultats de recherche pour {' '.join(search_terms)}", box=rich.box.SIMPLE)
         table.add_column("ID Offre", style="cyan")
         table.add_column("Intitulé")
         table.add_column("Lieu")
+        table.add_column("Type Contrat")
+
         for offre in offres:
             table.add_row(
                 offre.get("id", "N/A"),
                 truncate_text(offre.get("intitule", "N/A")),
                 truncate_text(offre.get("lieuTravail", {}).get("libelle", "N/A")),
+                offre.get("typeContrat", "N/A"),
             )
         console.print(table)
         console.print("\nPour interagir : `ftcli view <ID_OFFRE>` ou `ftcli suivi save <ID_OFFRE>`")
+
+        if export:
+            if export not in ["txt", "html"]:
+                console.print(f"[bold red]Format d'export '{export}' non valide. Choisissez 'txt' ou 'html'.[/bold red]")
+                return
+            
+            safe_mots = "".join(c if c.isalnum() else "_" for c in mots) if mots else "recherche"
+            filename = f"recherche_{safe_mots}.{export}"
+            
+            console.print(f"\n[green]📦 Exportation de {len(offres)} résultats vers [bold]{filename}[/bold]...[/green]")
+            
+            if export == "txt":
+                exporter.export_to_txt(offres, filename)
+            elif export == "html":
+                exporter.export_to_html(offres, filename)
+            
+            console.print(f"[bold green]✅ Exportation terminée ![/bold green]")
 
     except Exception as e:
         console.print(f"[bold red]❌ Erreur lors de la recherche : {e}[/bold red]")
@@ -132,92 +169,42 @@ def view(offre_id: str = typer.Argument(..., help="ID de l'offre à consulter"))
     except Exception as e:
         console.print(f"[bold red]❌ Erreur lors de la récupération de l'offre : {e}[/bold red]")
 
-@app.command()
-def agent(
-    goal: str = typer.Argument(..., help="Votre objectif. L'agent planifiera et exécutera les actions."),
-    profil_id: int = typer.Option(None, "--profil-id", "-p", help="ID du profil à utiliser pour les analyses."),
+@app.command("companies")
+def find_companies(
+    job: str = typer.Option(..., "--job", help="Le nom du métier recherché (ex: 'boulanger')"),
+    location: str = typer.Option(..., "--location", help="Le nom de la ville ou du département"),
 ):
-    """L'agent IA interprète votre objectif, crée un plan et l'exécute après confirmation."""
-    console.print(f"[bold cyan]🤖 AgentFT analyse votre objectif :[/bold cyan] [i]'{goal}'[/i]")
+    """Trouve les entreprises à fort potentiel d'embauche."""
+    console.print(f"\n[bold cyan]🏢 Recherche des entreprises pour '{job}' à '{location}'...[/bold cyan]")
+    
+    try:
+        async def run_fetch():
+            async with FTClient() as ft:
+                return await ft.get_potential_companies(job_label=job, location_label=location)
+        
+        companies = asyncio.run(run_fetch())
+        if not companies:
+            console.print("[yellow]⚠️ Aucune entreprise à fort potentiel trouvée pour ces critères.[/yellow]")
+            return
+            
+        table = Table(title="Entreprises à fort potentiel d'embauche", box=rich.box.MINIMAL_HEAVY_HEAD)
+        table.add_column("Entreprise", style="green", no_wrap=True)
+        table.add_column("Ville", style="cyan")
+        table.add_column("Potentiel", style="magenta")
+        table.add_column("SIRET", style="dim")
+        
+        for company in companies:
+            potential_str = f"{company.get('hiring_potential', 0):.2f}"
+            table.add_row(
+                company.get("company_name", "N/A"),
+                company.get("city", "N/A"),
+                potential_str,
+                company.get("siret", "N/A")
+            )
+        console.print(table)
 
-    with console.status("[bold green]Génération du plan d'action...[/bold green]", spinner="dots"):
-        result = get_structured_plan(goal, profil_id)
-
-    if "error" in result:
-        console.print(f"[bold red]{result['error']}[/bold red]")
-        raise typer.Exit(1)
-
-    plan = result.get("plan", [])
-    if not isinstance(plan, list) or not plan:
-        console.print(f"[bold red]Erreur : L'agent n'a pas pu générer de plan valide.[/bold red]")
-        raise typer.Exit(1)
-
-    console.print(Panel("[bold green]✅ Voici le plan d'action proposé :[/bold green]", expand=False, border_style="green"))
-    for i, action in enumerate(plan, 1):
-        command_name = action.get("name", "inconnu").replace("_", " ")
-        args_display_list = []
-        for k, v in action.get("arguments", {}).items():
-            args_display_list.append(f'--{k} "{v}"' if isinstance(v, str) and " " in v else f"--{k} {v}")
-        args_display = " ".join(args_display_list)
-        console.print(f"[cyan]{i}.[/cyan] [yellow]ftcli {command_name} {args_display}[/yellow]")
-
-    if not questionary.confirm("Exécuter ce plan ?").ask():
-        console.print("[yellow]Plan annulé.[/yellow]")
-        return
-
-    console.print("\n" + "-" * 50)
-    console.print("[bold cyan]🚀 Lancement de l'exécution du plan...[/bold cyan]")
-
-    context = {"ID_OFFRE_LIST": []}
-
-    for i, action in enumerate(plan, 1):
-        console.print(f"\n[bold]Étape {i}/{len(plan)} :[/bold] [yellow]{action.get('name')}[/yellow]")
-
-        arguments = action.get("arguments", {}).copy()
-        # Remplacer les placeholders <ID_A_REMPLACER_X> par les ID d'offres
-        if "<ID_A_REMPLACER" in str(arguments.get("offre", "")):
-            index = int(arguments.get("offre", "").split("_")[-1][:-1]) - 1 if "<ID_A_REMPLACER" in arguments.get("offre", "") else None
-            if index is not None and index < len(context["ID_OFFRE_LIST"]):
-                arguments["offre"] = context["ID_OFFRE_LIST"][index]
-            else:
-                console.print("[bold red]❌ Échec : ID de l'offre manquant ou invalide dans le contexte.[/bold red]")
-                break
-
-        command_name = action.get("name", "").replace("_", " ")
-        command_list = ["ftcli", *command_name.split()]
-        for key, value in arguments.items():
-            command_list.append(f"--{key}")
-            command_list.append(str(value))
-
-        try:
-            with console.status(f"[bold green]Exécution de `{' '.join(command_list)}`...[/bold green]", spinner="dots"):
-                result = subprocess.run(command_list, capture_output=True, text=True)
-
-            output = result.stdout
-            console.print(output)
-
-            if result.returncode != 0:
-                console.print(f"[bold red]❌ L'étape a échoué ! Erreur :[/bold red]\n{result.stderr}")
-                break
-
-            if action.get("name") == "search":
-                context["ID_OFFRE_LIST"] = []
-                matches = re.findall(r"(\b[0-9A-Z]{7,}\b)", output)
-                max_results = int(arguments.get("max-results", 15))  # Par défaut à 15 si non spécifié
-                if matches:
-                    context["ID_OFFRE_LIST"] = matches[:max_results]
-                    console.print(f"[bold green]➡️ Contexte mis à jour :[/bold green] ID_OFFRE_LIST = {context['ID_OFFRE_LIST']}")
-                else:
-                    console.print("[yellow]⚠️ Aucun ID d'offre trouvé dans la sortie de recherche.[/yellow]")
-
-        except Exception as e:
-            console.print(f"[bold red]❌ Erreur critique : {e}[/bold red]")
-            break
-
-    console.print("\n" + "-" * 50)
-    console.print("[bold green]🏁 Plan d'action terminé ![/bold green]")
-
-# --- Sous-commandes Profils ---
+    except Exception as e:
+        console.print(f"[bold red]❌ Erreur lors de la recherche d'entreprises : {e}[/bold red]")
 
 @profil_app.command("analyser")
 def profil_analyser(
@@ -225,11 +212,24 @@ def profil_analyser(
     nom: str = typer.Option(..., "--nom", help="Nom du profil à sauvegarder"),
 ):
     """Analyse un CV PDF et sauvegarde le profil."""
-    import pdfplumber
-
     try:
-        with pdfplumber.open(cv_path) as pdf:
-            texte_cv = "".join(page.extract_text() or "" for page in pdf.pages)
+        existing_profile = database.get_profile_by_name(nom)
+        if existing_profile:
+            console.print(f"[yellow]⚠️ Le profil '{nom}' existe déjà (ID: {existing_profile['id']}).[/yellow]")
+            if questionary.confirm("Remplacer le profil existant ?").ask():
+                database.delete_profile(existing_profile['id'])
+            else:
+                new_nom = questionary.text("Entrez un nouveau nom pour le profil :").ask()
+                if not new_nom:
+                    console.print("[yellow]Aucun nouveau nom fourni. Annulation.[/yellow]")
+                    return
+                nom = new_nom
+
+        result = subprocess.run(["pdftotext", cv_path, "-"], capture_output=True, text=True)
+        if result.returncode != 0:
+            console.print(f"[bold red]❌ Erreur lors de l'extraction du texte : {result.stderr}[/bold red]")
+            return
+        texte_cv = result.stdout
         if not texte_cv.strip():
             console.print("[bold red]❌ Le CV est vide ou illisible.[/bold red]")
             return
@@ -258,10 +258,8 @@ def profil_lister():
     table.add_column("Nom du Profil")
     table.add_column("Date")
     for profil in profils:
-        table.add_row(str(profil["id"]), profil["nom"], profil["created_at"])
+        table.add_row(str( profil["id"]), profil["nom"], profil["created_at"])
     console.print(table)
-
-# --- Sous-commandes Suivi ---
 
 @suivi_app.command("save")
 def suivi_save(offre_id: str = typer.Argument(..., help="ID de l'offre à sauvegarder")):
@@ -419,6 +417,36 @@ def adapter(
 
     except Exception as e:
         console.print(f"[bold red]❌ Erreur lors de l'adaptation du CV : {e}[/bold red]")
+
+@app.command("lettre")
+def generer_lettre(
+    profil: int = typer.Option(..., "--profil", help="ID du profil de CV à utiliser."),
+    offre: str = typer.Option(..., "--offre", help="ID de l'offre pour laquelle générer la lettre."),
+):
+    """Génère une lettre de motivation adaptée à une offre via l'IA."""
+    console.print(f"\n[bold cyan]📝 Génération de la lettre de motivation pour l'offre {offre}...[/bold cyan]")
+    try:
+        profil_data = database.get_profile(profil)
+        if not profil_data:
+            console.print(f"[bold red]❌ Profil {profil} non trouvé.[/bold red]")
+            return
+
+        async def get_offre_details():
+            async with FTClient() as ft:
+                return await ft.get_offre(offre)
+
+        offre_data = asyncio.run(get_offre_details())
+        if not offre_data:
+            console.print(f"[bold red]❌ Offre {offre} non trouvée.[/bold red]")
+            return
+
+        with console.status("[bold green]Envoi à l'IA Gemini pour la rédaction...[/bold green]", spinner="dots"):
+            lettre = generer_lettre_motivation_ia(profil_data["analyse"], offre_data)
+        
+        console.print(Panel(Markdown(lettre), title="[bold]Lettre de Motivation Suggérée[/bold]", border_style="cyan", expand=True))
+
+    except Exception as e:
+        console.print(f"[bold red]❌ Erreur lors de la génération de la lettre : {e}[/bold red]")
 
 if __name__ == "__main__":
     app()

@@ -1,0 +1,44 @@
+# Fichier : pyproject.toml
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ftcli"
+version = "0.2.0" # On peut augmenter la version car on a ajouté des fonctionnalités
+description = "Un assistant de recherche d'emploi en ligne de commande avec IA."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT License" }
+authors = [
+  { name = "Votre Nom", email = "votre@email.com" },
+]
+
+# Liste de toutes les dépendances de votre projet
+dependencies = [
+    "typer[all]",
+    "rich",
+    "python-dotenv",
+    "requests",
+    "httpx",
+    "diskcache",
+    "questionary",
+]
+
+[project.urls]
+Homepage = "https://github.com/votre-utilisateur/ftcli" # Mettez l'URL de votre repo GitHub ici
+
+# C'est la section la plus importante pour la commande `ftcli` !
+# Elle crée un "point d'entrée" ou un "script"
+[project.scripts]
+ftcli = "ftcli.cli:app"
+# Fichier : pyproject.toml
+
+# ... (toutes les sections précédentes : [build-system], [project], [project.scripts]) ...
+
+# --- DÉBUT DU BLOC DE CODE À AJOUTER ---
+[tool.setuptools]
+# On désactive la découverte automatique des packages
+packages = ["ftcli"]
+# --- FIN DU BLOC DE CODE À AJOUTER ---

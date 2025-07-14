@@ -1,5 +1,0 @@
-typer
-rich
-python-dotenv
-requests
-sqlite3
