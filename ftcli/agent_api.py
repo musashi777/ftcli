@@ -37,7 +37,7 @@ def get_structured_plan(user_goal: str, profil_id: int = None) -> Dict[str, List
         ' - `view(offre: str)`\n'
         ' - `match(offre: str, profil: int)`\n'
         ' - `adapter(offre: str, profil: int)`\n'
-        ' - `suivi save(offre: str)`\n\n'
+        ' - `suivi save <ID_OFFRE>` (note: ceci est un argument, pas une option --offre)\n\n'
         'Exemple de sortie attendue pour une demande complexe:\n'
         '{\n'
         '  "plan": [\n'

@@ -206,6 +206,119 @@ def find_companies(
     except Exception as e:
         console.print(f"[bold red]❌ Erreur lors de la recherche d'entreprises : {e}[/bold red]")
 
+@app.command()
+def agent(
+    goal: str = typer.Argument(..., help="Votre objectif. L'agent planifiera et exécutera les actions."),
+    profil_id: int = typer.Option(None, "--profil-id", "-p", help="ID du profil à utiliser pour les analyses."),
+):
+    """L'agent IA interprète votre objectif, crée un plan et l'exécute après confirmation."""
+    console.print(f"[bold cyan]🤖 AgentFT analyse votre objectif :[/bold cyan] [i]'{goal}'[/i]")
+
+    with console.status("[bold green]Génération du plan d'action...[/bold green]", spinner="dots"):
+        result = get_structured_plan(goal, profil_id)
+
+    if "error" in result:
+        console.print(f"[bold red]{result['error']}[/bold red]")
+        raise typer.Exit(1)
+
+    plan = result.get("plan", [])
+    if not isinstance(plan, list) or not plan:
+        console.print(f"[bold red]Erreur : L'agent n'a pas pu générer de plan valide.[/bold red]")
+        raise typer.Exit(1)
+
+    console.print(Panel("[bold green]✅ Voici le plan d'action proposé :[/bold green]", expand=False, border_style="green"))
+    for i, action in enumerate(plan, 1):
+        command_name = action.get("name", "inconnu").replace("_", " ")
+        args_display_list = []
+        for k, v in action.get("arguments", {}).items():
+            args_display_list.append(f'--{k.replace("_", "-")} "{v}"' if isinstance(v, str) and " " in v else f'--{k.replace("_", "-")} {v}')
+        args_display = " ".join(args_display_list)
+        console.print(f"[cyan]{i}.[/cyan] [yellow]ftcli {command_name} {args_display}[/yellow]")
+
+
+    if not questionary.confirm("Exécuter ce plan ?").ask():
+        console.print("[yellow]Plan annulé.[/yellow]")
+        return
+
+    console.print("\n" + "-" * 50)
+    console.print("[bold cyan]🚀 Lancement de l'exécution du plan...[/bold cyan]")
+
+    context = {"ID_OFFRE_LIST": []}
+
+    for i, action in enumerate(plan, 1):
+        console.print(f"\n[bold]Étape {i}/{len(plan)} :[/bold] [yellow]{action.get('name')}[/yellow]")
+
+        arguments = action.get("arguments", {}).copy()
+        
+        placeholder = arguments.get("offre", "")
+        if "<ID_A_REMPLACER" in str(placeholder):
+            index = 0
+            if "_" in placeholder:
+                try:
+                    index_str = placeholder.split("_")[-1][:-1]
+                    index = int(index_str) - 1
+                except (ValueError, IndexError):
+                    console.print(f"[yellow]⚠️ Placeholder '{placeholder}' mal formé, utilisation de la première offre par défaut.[/yellow]")
+                    index = 0
+
+            if index < len(context["ID_OFFRE_LIST"]):
+                arguments["offre"] = context["ID_OFFRE_LIST"][index]
+                console.print(f"[dim]Placeholder remplacé par l'ID: {arguments['offre']}[/dim]")
+            else:
+                console.print(f"[bold red]❌ Échec : Impossible de trouver l'offre à l'index {index+1}. Liste d'ID disponibles : {len(context['ID_OFFRE_LIST'])}[/bold red]")
+                break
+        
+        command_name = action.get("name", "").replace("_", " ")
+        command_list = ["ftcli", *command_name.split()]
+        
+        # CORRECTION : Logique spéciale pour la commande 'suivi save'
+        if command_name == "suivi save":
+            # On ignore les arguments de l'IA et on construit la commande correctement
+            offre_id_to_save = arguments.get("offre")
+            if not offre_id_to_save: # Fallback si la clé est différente
+                for val in arguments.values():
+                    if isinstance(val, str) and len(val) > 5: # Heuristique pour trouver un ID d'offre
+                        offre_id_to_save = val
+                        break
+            
+            if offre_id_to_save:
+                command_list = ["ftcli", "suivi", "save", offre_id_to_save]
+            else:
+                console.print(f"[bold red]❌ L'agent n'a pas réussi à spécifier un ID d'offre pour 'suivi save'.[/bold red]")
+                break
+        else:
+             for key, value in arguments.items():
+                command_list.append(f"--{key.replace('_', '-')}")
+                command_list.append(str(value))
+
+        try:
+            with console.status(f"[bold green]Exécution de `{' '.join(command_list)}`...[/bold green]", spinner="dots"):
+                result = subprocess.run(command_list, capture_output=True, text=True, check=False)
+
+            output = result.stdout
+            console.print(output)
+
+            if result.returncode != 0:
+                console.print(f"[bold red]❌ L'étape a échoué ! Erreur :[/bold red]\n{result.stderr}")
+                break
+
+            if action.get("name") == "search":
+                context["ID_OFFRE_LIST"] = []
+                potential_ids = re.findall(r"^\s*([A-Z0-9]{7})\s", output, re.MULTILINE)
+                if potential_ids:
+                    context["ID_OFFRE_LIST"] = potential_ids
+                    console.print(f"➡️ Contexte mis à jour : ID_OFFRE_LIST = {context['ID_OFFRE_LIST']}")
+                else:
+                    console.print("[yellow]⚠️ Aucun ID d'offre trouvé dans la sortie de recherche.[/yellow]")
+
+        except Exception as e:
+            console.print(f"[bold red]❌ Erreur critique : {e}[/bold red]")
+            break
+
+    console.print("\n" + "-" * 50)
+    console.print("[bold green]🏁 Plan d'action terminé ![/bold green]")
+
+
 @profil_app.command("analyser")
 def profil_analyser(
     cv_path: str = typer.Argument(..., help="Chemin vers le fichier PDF du CV"),
@@ -371,7 +484,7 @@ def match(
         profil_data = database.get_profile(profil)
         if not profil_data:
             console.print(f"[bold red]❌ Profil {profil} non trouvé.[/bold red]")
-            return
+            raise typer.Exit(code=1)
 
         async def get_offre_details():
             async with FTClient() as ft:
@@ -380,14 +493,21 @@ def match(
         offre_data = asyncio.run(get_offre_details())
         if not offre_data:
             console.print(f"[bold red]❌ Offre {offre} non trouvée.[/bold red]")
-            return
+            raise typer.Exit(code=1)
 
         with console.status("[bold green]Envoi à l'IA Gemini pour générer le rapport...[/bold green]", spinner="dots"):
             rapport = generer_rapport_matching_ia(profil_data["analyse"], offre_data)
+        
         console.print(Panel(Markdown(rapport), title="[bold]Rapport de Compatibilité[/bold]", border_style="cyan"))
+        
+        # CORRECTION : On vérifie si l'IA a retourné une erreur et on quitte le cas échéant
+        if rapport.strip().startswith("[ERREUR Gemini]"):
+             console.print("[bold red]L'agent ne peut pas continuer car l'analyse de compatibilité a échoué.[/bold red]")
+             raise typer.Exit(code=1)
 
     except Exception as e:
         console.print(f"[bold red]❌ Erreur lors de l'analyse de compatibilité : {e}[/bold red]")
+        raise typer.Exit(code=1)
 
 @app.command()
 def adapter(
