@@ -70,15 +70,18 @@ class FTClient:
         cache_key = json.dumps(params, sort_keys=True)
         if cache_key in self.cache: return self.cache[cache_key]
 
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{self.offres_url}/offres/search",
-                headers=headers, params=params, timeout=30
-            )
-            response.raise_for_status()
-            offres = response.json().get("resultats", [])
-            self.cache[cache_key] = offres
-            return offres
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{self.offres_url}/offres/search",
+                    headers=headers, params=params, timeout=30
+                )
+                response.raise_for_status()
+                offres = response.json().get("resultats", [])
+                self.cache[cache_key] = offres
+                return offres
+        except Exception as e:
+            raise Exception(f"Erreur lors de la recherche d'offres : {e}")
 
     async def get_offre(self, offre_id: str) -> Dict:
         """Récupère les détails d'une offre spécifique."""

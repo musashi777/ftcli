@@ -7,7 +7,7 @@ load_dotenv()
 API_KEY = os.getenv("GEMINI_API_KEY")
 
 # Utilisation d'un modèle plus récent et performant
-GEMINI_MODEL = "gemini-1.5-flash"
+GEMINI_MODEL = "gemini-2.0-flash"
 
 def _call_gemini_api(prompt: str) -> str:
     """Fonction helper pour appeler l'API Gemini avec gestion d'erreurs et logique de retry."""
