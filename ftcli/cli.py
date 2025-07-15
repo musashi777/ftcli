@@ -85,10 +85,12 @@ def search(mots: str = typer.Option(..., "--mots"), departement: Optional[str] =
         if not offres:
             console.print("[yellow]⚠️ Aucune offre trouvée.[/yellow]"); return None
         
-        table = Table(title=f"Résultats pour '{mots}'", box=rich.box.SIMPLE)
-        table.add_column("ID Offre", style="cyan"); table.add_column("Intitulé"); table.add_column("Lieu"); table.add_column("Type Contrat")
+        table = Table(title=f"Résultats pour '{mots}'", box=rich.box.SIMPLE_HEAVY)
+        table.add_column("ID Offre", style="cyan", no_wrap=True); table.add_column("Intitulé", style="white"); table.add_column("Lieu", style="yellow"); table.add_column("Type Contrat", style="bold")
         for offre in offres:
-            table.add_row(offre.get("id", "N/A"), truncate_text(offre.get("intitule", "N/A")), truncate_text(offre.get("lieuTravail", {}).get("libelle", "N/A")), offre.get("typeContrat", "N/A"))
+            type_contrat = offre.get("typeContrat", "N/A")
+            style = "green" if type_contrat == "CDI" else "yellow" if type_contrat == "CDD" else "dim"
+            table.add_row(offre.get("id", "N/A"), truncate_text(offre.get("intitule", "N/A")), truncate_text(offre.get("lieuTravail", {}).get("libelle", "N/A")), f"[{style}]{type_contrat}[/{style}]")
         console.print(table)
         return offres
     except Exception as e:
@@ -256,8 +258,8 @@ def match(profil: int = typer.Option(..., "--profil"), offre: str = typer.Option
         return {"rapport": rapport, "profil_id": profil, "offre_id": offre}
     except Exception as e:
         console.print(f"[bold red]❌ Erreur lors de l'analyse : {e}[/bold red]"); raise typer.Exit(code=1)
-        
-@app.command(name="analyse")
+
+@app.command("analyse")
 def analyse_interactive(profil: int = typer.Option(..., "--profil"), offre: str = typer.Option(..., "--offre")):
     """Analyse une offre et propose un menu d'actions."""
     console.print(f"[bold cyan]📊 Analyse de compatibilité pour l'offre {offre} avec le profil {profil}...[/bold cyan]")
@@ -283,28 +285,19 @@ def analyse_interactive(profil: int = typer.Option(..., "--profil"), offre: str 
         console.print(Panel(summary, border_style="green", title="Suggestion Stratégique"))
 
         while True:
-            action_choice = questionary.select(
-                "Que voulez-vous faire maintenant ?",
-                choices=["📖 Voir le rapport détaillé", "📝 Adapter le CV", "✉️ Rédiger la lettre", "💾 Sauvegarder l'offre", "⬅️ Terminer"]
-            ).ask()
-
-            if not action_choice or "Terminer" in action_choice:
-                break
+            action_choice = questionary.select("Que voulez-vous faire maintenant ?", choices=["📖 Voir le rapport détaillé", "📝 Adapter le CV", "✉️ Rédiger la lettre", "💾 Sauvegarder l'offre", "⬅️ Terminer"]).ask()
+            if not action_choice or "Terminer" in action_choice: break
             elif "détaillé" in action_choice:
                 console.print(Panel(Markdown(rapport), title="[bold]Rapport de Compatibilité Complet[/bold]", border_style="cyan", expand=True))
-                questionary.press_any_key_to_continue().ask() # Pause pour lire
-            elif "Adapter" in action_choice:
-                adapter(profil=profil, offre=offre); break
-            elif "Rédiger" in action_choice:
-                generer_lettre(profil=profil, offre=offre); break
-            elif "Sauvegarder" in action_choice:
-                suivi_save(offre_id=offre); break
+                questionary.press_any_key_to_continue().ask()
+            elif "Adapter" in action_choice: adapter(profil=profil, offre=offre); break
+            elif "Rédiger" in action_choice: generer_lettre(profil=profil, offre=offre); break
+            elif "Sauvegarder" in action_choice: suivi_save(offre_id=offre); break
     except Exception as e:
         console.print(f"[bold red]❌ Erreur lors de l'analyse interactive : {e}[/bold red]")
 
-
 @app.command(name="synthese")
-def analyse_synthetique(profil: int = typer.Option(..., "--profil", help="ID de votre profil de CV."), offres: List[str] = typer.Option(..., "--offre", help="ID d'une offre à analyser.")):
+def analyse_synthetique(profil: int = typer.Option(..., "--profil"), offres: List[str] = typer.Option(..., "--offre")):
     """Analyse plusieurs offres et génère un tableau de synthèse comparatif."""
     console.print(f"\n[bold cyan]📊 Lancement de l'analyse de synthèse pour le profil {profil} sur {len(offres)} offres...[/bold cyan]")
     profil_data = database.get_profile(profil)
@@ -412,7 +405,6 @@ def agent(goal: str = typer.Argument(...), profil_id: Optional[int] = typer.Opti
 def interactive_menu_command():
     """Lance le menu principal interactif."""
     while True:
-        console.clear()
         choice = create_main_menu()
         if not choice or "Quitter" in choice:
             console.print("[yellow]Au revoir ! 👋[/yellow]"); break
